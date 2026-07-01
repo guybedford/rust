@@ -76,4 +76,24 @@ impl<'gcc, 'tcx> PreDefineCodegenMethods<'tcx> for CodegenCx<'gcc, 'tcx> {
         self.functions.borrow_mut().insert(symbol_name.to_string(), decl);
         self.function_instances.borrow_mut().insert(instance, decl);
     }
+
+    fn predefine_reified_const(
+        &mut self,
+        instance: Instance<'tcx>,
+        _linkage: Linkage,
+        _visibility: Visibility,
+        _symbol_name: &str,
+    ) {
+        self.tcx.dcx().span_fatal(
+            self.tcx.def_span(instance.def_id()),
+            "`#[link_section]` on generic const items is not yet supported by the GCC backend",
+        );
+    }
+
+    fn codegen_reified_const(&mut self, instance: Instance<'tcx>) {
+        self.tcx.dcx().span_fatal(
+            self.tcx.def_span(instance.def_id()),
+            "`#[link_section]` on generic const items is not yet supported by the GCC backend",
+        );
+    }
 }

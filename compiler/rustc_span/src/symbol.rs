@@ -1353,6 +1353,7 @@ symbols! {
         modifiers,
         module,
         module_path,
+        monomorphized_link_section,
         more_maybe_bounds,
         more_qualified_paths,
         more_struct_aliases,

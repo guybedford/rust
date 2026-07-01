@@ -911,6 +911,9 @@ impl<'tcx> Stable<'tcx> for MonoItem<'tcx> {
         use crate::mir::mono::MonoItem as StableMonoItem;
         match self {
             MonoItem::Fn(instance) => StableMonoItem::Fn(instance.stable(tables, cx)),
+            // A reified `#[link_section]` const monomorphization is surfaced as a `Fn`-shaped
+            // instance in stable MIR, since it is keyed by an `Instance` (def id + generic args).
+            MonoItem::ReifiedConst(instance) => StableMonoItem::Fn(instance.stable(tables, cx)),
             MonoItem::Static(def_id) => StableMonoItem::Static(tables.static_def(*def_id)),
             MonoItem::GlobalAsm(item_id) => StableMonoItem::GlobalAsm(opaque(item_id)),
         }

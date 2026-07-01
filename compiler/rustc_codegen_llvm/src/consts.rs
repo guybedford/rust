@@ -9,8 +9,8 @@ use rustc_hir::def::DefKind;
 use rustc_hir::def_id::{DefId, LOCAL_CRATE};
 use rustc_middle::middle::codegen_fn_attrs::{CodegenFnAttrFlags, CodegenFnAttrs};
 use rustc_middle::mir::interpret::{
-    Allocation, ConstAllocation, ErrorHandled, InitChunk, Pointer, Scalar as InterpScalar,
-    read_target_uint,
+    Allocation, ConstAllocation, ErrorHandled, GlobalId, InitChunk, Pointer,
+    Scalar as InterpScalar, read_target_uint,
 };
 use rustc_middle::mono::MonoItem;
 use rustc_middle::ty::layout::{HasTypingEnv, LayoutOf};
@@ -830,6 +830,105 @@ impl<'ll> CodegenCx<'ll, '_> {
         llvm::set_section(g, c"__OBJC,__module_info,regular,no_dead_strip");
 
         self.add_compiler_used_global(g);
+    }
+}
+
+impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
+    /// Codegen the initializer for a reified `#[link_section]` const monomorphization.
+    ///
+    /// This parallels [`Self::codegen_static_item`], but evaluates the const per its substituted
+    /// generics rather than as a plain static, and forces `linkonce_odr` linkage so identical
+    /// instantiations are merged by the linker. See the `monomorphized_link_section` feature.
+    pub(crate) fn codegen_reified_const_item(&mut self, instance: Instance<'tcx>) {
+        let def_id = instance.def_id();
+        let attrs = self.tcx.codegen_fn_attrs(def_id);
+
+        // Evaluate the const for this monomorphization. Any error was already reported at the
+        // triggering use site during mono item collection.
+        let cid = GlobalId { instance, promoted: None };
+        let typing_env = ty::TypingEnv::fully_monomorphized();
+        let inputs = self.tcx.erase_and_anonymize_regions(typing_env.as_query_input(cid));
+        let Ok(alloc) = self.tcx.eval_to_allocation_raw(inputs) else {
+            return;
+        };
+        let alloc = self.tcx.global_alloc(alloc.alloc_id).unwrap_memory();
+        let v = const_alloc_to_llvm(self, alloc.inner(), IsStatic::Yes, IsInitOrFini::No);
+        let alloc = alloc.inner();
+
+        let g = *self
+            .instances
+            .borrow()
+            .get(&instance)
+            .expect("reified const should have been predefined");
+
+        // As in `codegen_static_item`, the generated initializer type rarely matches the declared
+        // type, so retroactively re-declare the global with the initializer's type.
+        let val_llty = self.val_ty(v);
+        let llty = self.get_type_of_global(g);
+        let g = if val_llty == llty {
+            g
+        } else {
+            let name = String::from_utf8(llvm::get_value_name(g))
+                .expect("we declare our globals with a utf8-valid name");
+            llvm::set_value_name(g, b"");
+
+            let linkage = llvm::get_linkage(g);
+            let visibility = llvm::get_visibility(g);
+
+            let new_g = self.declare_global(&name, val_llty);
+
+            llvm::set_linkage(new_g, linkage);
+            llvm::set_visibility(new_g, visibility);
+
+            self.statics_to_rauw.borrow_mut().push((g, new_g));
+            self.instances.borrow_mut().insert(instance, new_g);
+            new_g
+        };
+
+        // Merge identical instantiations across CGUs via a COMDAT group (where supported).
+        if self.tcx.sess.target.supports_comdat() {
+            llvm::SetUniqueComdat(self.llmod, g);
+        }
+
+        set_global_alignment(self, g, alloc.align);
+        llvm::set_initializer(g, v);
+        self.assume_dso_local(g, true);
+
+        // The blob is read-only.
+        llvm::set_global_constant(g, true);
+
+        // Section placement mirrors `codegen_static_item`: wasm custom sections go through named
+        // metadata, everything else sets the LLVM section directly.
+        if self.tcx.sess.target.is_like_wasm
+            && attrs
+                .link_section
+                .map(|link_section| !link_section.as_str().starts_with(".init_array"))
+                .unwrap_or(true)
+        {
+            if let Some(section) = attrs.link_section {
+                let section = self.create_metadata(section.as_str().as_bytes());
+                assert!(alloc.provenance().ptrs().is_empty());
+                let bytes = alloc.inspect_with_uninit_and_ptr_outside_interpreter(0..alloc.len());
+                let alloc = self.create_metadata(bytes);
+                let data = [section, alloc];
+                self.module_add_named_metadata_node(self.llmod(), c"wasm.custom_sections", &data);
+            }
+        } else {
+            base::set_link_section(g, attrs);
+        }
+
+        base::set_variable_sanitizer_attrs(g, attrs);
+
+        // Retention: `#[used]` must keep each monomorphization alive despite it only being
+        // referenced at const-eval time.
+        if attrs.flags.contains(CodegenFnAttrFlags::USED_COMPILER) {
+            assert!(!attrs.flags.contains(CodegenFnAttrFlags::USED_LINKER));
+            self.add_compiler_used_global(g);
+        }
+        if attrs.flags.contains(CodegenFnAttrFlags::USED_LINKER) {
+            assert!(!attrs.flags.contains(CodegenFnAttrFlags::USED_COMPILER));
+            self.add_used_global(g);
+        }
     }
 }
 

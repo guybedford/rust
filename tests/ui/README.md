@@ -935,6 +935,10 @@ Tests on the module system.
 
 **FIXME**: `tests/ui/imports/` should probably be merged with this.
 
+## `tests/ui/monomorphized-link-section/`
+
+Tests for `#![feature(monomorphized_link_section)]`.
+
 ## `tests/ui/move-expr/`
 
 Tests for `#![feature(move_expr)]`.

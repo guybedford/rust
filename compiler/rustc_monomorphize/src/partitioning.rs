@@ -682,6 +682,7 @@ fn characteristic_def_id_of_mono_item<'tcx>(
             Some(def_id)
         }
         MonoItem::Static(def_id) => Some(def_id),
+        MonoItem::ReifiedConst(instance) => Some(instance.def_id()),
         MonoItem::GlobalAsm(item_id) => Some(item_id.owner_id.to_def_id()),
     }
 }
@@ -749,6 +750,13 @@ fn mono_item_linkage_and_visibility<'tcx>(
     if let Some(explicit_linkage) = mono_item.explicit_linkage(tcx) {
         return (explicit_linkage, Visibility::Default);
     }
+    // Reified `#[link_section]` consts are emitted with `linkonce_odr` linkage so that identical
+    // instantiations (which share a mangling-derived symbol name) are merged by the linker, while
+    // distinct instantiations get distinct names and are concatenated.
+    if let MonoItem::ReifiedConst(..) = mono_item {
+        *can_be_internalized = false;
+        return (Linkage::LinkOnceODR, Visibility::Hidden);
+    }
     let vis = mono_item_visibility(
         tcx,
         mono_item,
@@ -787,6 +795,10 @@ fn mono_item_visibility<'tcx>(
 
         // Misc handling for generics and such, but otherwise:
         MonoItem::Static(def_id) => return static_visibility(tcx, can_be_internalized, *def_id),
+        // Handled by `mono_item_linkage_and_visibility` before reaching here.
+        MonoItem::ReifiedConst(instance) => {
+            return static_visibility(tcx, can_be_internalized, instance.def_id());
+        }
         MonoItem::GlobalAsm(item_id) => {
             return static_visibility(tcx, can_be_internalized, item_id.owner_id.to_def_id());
         }
@@ -1170,6 +1182,7 @@ fn collect_and_partition_mono_items(tcx: TyCtxt<'_>, (): ()) -> MonoItemPartitio
         .iter()
         .filter_map(|mono_item| match *mono_item {
             MonoItem::Fn(ref instance) => Some(instance.def_id()),
+            MonoItem::ReifiedConst(ref instance) => Some(instance.def_id()),
             MonoItem::Static(def_id) => Some(def_id),
             _ => None,
         })

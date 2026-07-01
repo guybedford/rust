@@ -18,4 +18,18 @@ pub trait PreDefineCodegenMethods<'tcx> {
         visibility: Visibility,
         symbol_name: &str,
     );
+    /// Predefine the global for a reified `#[link_section]` const monomorphization.
+    ///
+    /// See the `monomorphized_link_section` feature.
+    fn predefine_reified_const(
+        &mut self,
+        instance: Instance<'tcx>,
+        linkage: Linkage,
+        visibility: Visibility,
+        symbol_name: &str,
+    );
+    /// Codegen the initializer for a reified `#[link_section]` const monomorphization.
+    ///
+    /// See the `monomorphized_link_section` feature.
+    fn codegen_reified_const(&mut self, instance: Instance<'tcx>);
 }

@@ -218,7 +218,7 @@ use rustc_hir::def_id::{DefId, DefIdMap, LocalDefId};
 use rustc_hir::lang_items::LangItem;
 use rustc_hir::limit::Limit;
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
-use rustc_middle::mir::interpret::{AllocId, ErrorHandled, GlobalAlloc, Scalar};
+use rustc_middle::mir::interpret::{AllocId, ErrorHandled, GlobalAlloc, GlobalId, Scalar};
 use rustc_middle::mir::visit::Visitor as MirVisitor;
 use rustc_middle::mir::{self, Body, Location, MentionedItem, traversal};
 use rustc_middle::mono::{CollectionMode, InstantiationMode, MonoItem, NormalizationErrorInMono};
@@ -458,6 +458,23 @@ fn collect_items_rec<'tcx>(
             // optimized, and if they did then the const-eval interpreter would have to worry about
             // mentioned_items.
         }
+        MonoItem::ReifiedConst(instance) => {
+            recursion_depth_reset = None;
+
+            // Evaluate the const so that a const-eval failure surfaces here (at the triggering
+            // use site) rather than during codegen. The blob is required to be free of pointers
+            // (see the restriction enforced in `rustc_hir_analysis`), so there is nothing further
+            // to collect from its allocation.
+            if mode == CollectionMode::UsedItems {
+                debug_assert!(tcx.should_codegen_locally(instance));
+                let cid = GlobalId { instance, promoted: None };
+                let typing_env = ty::TypingEnv::fully_monomorphized();
+                let inputs = tcx.erase_and_anonymize_regions(typing_env.as_query_input(cid));
+                if let Err(err) = tcx.eval_to_allocation_raw(inputs) {
+                    err.emit_note(tcx);
+                }
+            }
+        }
         MonoItem::Fn(instance) => {
             // Sanity check whether this ended up being collected accidentally
             debug_assert!(tcx.should_codegen_locally(instance));
@@ -553,6 +570,13 @@ fn collect_items_rec<'tcx>(
                 kind: "static",
                 instance: Instance::new_raw(def_id, GenericArgs::empty()),
             }),
+            MonoItem::ReifiedConst(instance) => {
+                tcx.dcx().emit_note(EncounteredErrorWhileInstantiating {
+                    span: starting_item.span,
+                    kind: "const",
+                    instance,
+                })
+            }
             MonoItem::GlobalAsm(_) => {
                 tcx.dcx().emit_note(EncounteredErrorWhileInstantiatingGlobalAsm {
                     span: starting_item.span,
@@ -808,6 +832,22 @@ impl<'a, 'tcx> MirVisitor<'tcx> for MirUsedCollector<'a, 'tcx> {
     #[instrument(skip(self), level = "debug")]
     fn visit_const_operand(&mut self, constant: &mir::ConstOperand<'tcx>, _location: Location) {
         // No `super_constant` as we don't care about `visit_ty`/`visit_ty_const`.
+
+        // A reference to a generic `#[link_section]` `const` item reifies a per-monomorphization
+        // static (see the `monomorphized_link_section` feature). Even though the const's value is
+        // still materialized inline at the use site, we additionally emit an addressable static
+        // into the requested section, retained via `#[used]`.
+        if let mir::Const::Unevaluated(uv, _) = constant.const_
+            && uv.promoted.is_none()
+            && is_reified_link_section_const(self.tcx, uv.def)
+        {
+            let args = self.monomorphize(uv.args);
+            let instance = Instance::new_raw(uv.def, args);
+            if self.tcx.should_codegen_locally(instance) {
+                self.used_items.push(respan(constant.span, MonoItem::ReifiedConst(instance)));
+            }
+        }
+
         let Some(val) = self.eval_constant(constant) else { return };
         collect_const_value(self.tcx, val, self.used_items);
     }
@@ -1044,6 +1084,24 @@ fn visit_instance_use<'tcx>(
 
 /// Returns `true` if we should codegen an instance in the local crate, or returns `false` if we
 /// can just link to the upstream crate and therefore don't need a mono item.
+/// Whether `def_id` is a generic `const` item carrying `#[link_section]` under the
+/// `monomorphized_link_section` feature, and thus should be reified into a per-monomorphization
+/// static rather than being purely inlined.
+fn is_reified_link_section_const<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> bool {
+    if !tcx.features().monomorphized_link_section() {
+        return false;
+    }
+    if !matches!(tcx.def_kind(def_id), DefKind::Const { .. } | DefKind::AssocConst { .. }) {
+        return false;
+    }
+    // Only consts generic over types/consts get a distinct symbol per instantiation; a const
+    // generic only over lifetimes behaves as it does today (a single, region-erased instance).
+    if !tcx.generics_of(def_id).own_requires_monomorphization() {
+        return false;
+    }
+    tcx.codegen_fn_attrs(def_id).link_section.is_some()
+}
+
 fn should_codegen_locally<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> bool {
     let Some(def_id) = instance.def.def_id_if_not_guaranteed_local_codegen() else {
         return true;

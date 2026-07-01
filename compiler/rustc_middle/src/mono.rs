@@ -56,6 +56,11 @@ pub struct NormalizationErrorInMono;
 pub enum MonoItem<'tcx> {
     Fn(Instance<'tcx>),
     Static(DefId),
+    /// A `#[link_section]` generic `const` item reified into a per-monomorphization
+    /// read-only static, keyed by the const's `DefId` and its substituted generics.
+    ///
+    /// See the `monomorphized_link_section` feature.
+    ReifiedConst(Instance<'tcx>),
     GlobalAsm(ItemId),
 }
 
@@ -97,7 +102,7 @@ impl<'tcx> MonoItem<'tcx> {
     pub fn is_user_defined(&self) -> bool {
         match *self {
             MonoItem::Fn(instance) => matches!(instance.def, InstanceKind::Item(..)),
-            MonoItem::Static(..) | MonoItem::GlobalAsm(..) => true,
+            MonoItem::Static(..) | MonoItem::ReifiedConst(..) | MonoItem::GlobalAsm(..) => true,
         }
     }
 
@@ -108,20 +113,21 @@ impl<'tcx> MonoItem<'tcx> {
             MonoItem::Fn(instance) => tcx.size_estimate(instance),
             // Conservatively estimate the size of a static declaration or
             // assembly item to be 1.
-            MonoItem::Static(_) | MonoItem::GlobalAsm(_) => 1,
+            MonoItem::Static(_) | MonoItem::ReifiedConst(_) | MonoItem::GlobalAsm(_) => 1,
         }
     }
 
     pub fn is_generic_fn(&self) -> bool {
         match self {
             MonoItem::Fn(instance) => instance.args.non_erasable_generics().next().is_some(),
-            MonoItem::Static(..) | MonoItem::GlobalAsm(..) => false,
+            MonoItem::Static(..) | MonoItem::ReifiedConst(..) | MonoItem::GlobalAsm(..) => false,
         }
     }
 
     pub fn symbol_name(&self, tcx: TyCtxt<'tcx>) -> SymbolName<'tcx> {
         match *self {
             MonoItem::Fn(instance) => tcx.symbol_name(instance),
+            MonoItem::ReifiedConst(instance) => tcx.symbol_name(instance),
             MonoItem::Static(def_id) => tcx.symbol_name(Instance::mono(tcx, def_id)),
             MonoItem::GlobalAsm(item_id) => {
                 SymbolName::new(tcx, &format!("global_asm_{:?}", item_id.owner_id))
@@ -142,6 +148,12 @@ impl<'tcx> MonoItem<'tcx> {
             MonoItem::Fn(instance) => instance,
             MonoItem::Static(..) | MonoItem::GlobalAsm(..) => {
                 return InstantiationMode::GloballyShared { may_conflict: false };
+            }
+            // Reified `#[link_section]` consts are emitted with `linkonce_odr` linkage so that
+            // identical instantiations across CGUs/crates are merged by the linker. Mark them as
+            // `may_conflict` so that every referencing CGU may hold (and dedup) a copy.
+            MonoItem::ReifiedConst(..) => {
+                return InstantiationMode::GloballyShared { may_conflict: true };
             }
         };
 
@@ -238,6 +250,9 @@ impl<'tcx> MonoItem<'tcx> {
         let instance_kind = match *self {
             MonoItem::Fn(ref instance) => instance.def,
             MonoItem::Static(def_id) => InstanceKind::Item(def_id),
+            // Linkage for reified consts is forced to `linkonce_odr` during codegen, not taken
+            // from a `#[linkage]` attribute.
+            MonoItem::ReifiedConst(..) => return None,
             MonoItem::GlobalAsm(..) => return None,
         };
 
@@ -273,6 +288,7 @@ impl<'tcx> MonoItem<'tcx> {
         debug!("is_instantiable({:?})", self);
         let (def_id, args) = match *self {
             MonoItem::Fn(ref instance) => (instance.def_id(), instance.args),
+            MonoItem::ReifiedConst(ref instance) => (instance.def_id(), instance.args),
             MonoItem::Static(def_id) => (def_id, GenericArgs::empty()),
             // global asm never has predicates
             MonoItem::GlobalAsm(..) => return true,
@@ -284,6 +300,7 @@ impl<'tcx> MonoItem<'tcx> {
     pub fn local_span(&self, tcx: TyCtxt<'tcx>) -> Option<Span> {
         match *self {
             MonoItem::Fn(Instance { def, .. }) => def.def_id().as_local(),
+            MonoItem::ReifiedConst(instance) => instance.def_id().as_local(),
             MonoItem::Static(def_id) => def_id.as_local(),
             MonoItem::GlobalAsm(item_id) => Some(item_id.owner_id.def_id),
         }
@@ -299,6 +316,7 @@ impl<'tcx> MonoItem<'tcx> {
     pub fn krate(&self) -> CrateNum {
         match self {
             MonoItem::Fn(instance) => instance.def_id().krate,
+            MonoItem::ReifiedConst(instance) => instance.def_id().krate,
             MonoItem::Static(def_id) => def_id.krate,
             MonoItem::GlobalAsm(..) => LOCAL_CRATE,
         }
@@ -308,6 +326,7 @@ impl<'tcx> MonoItem<'tcx> {
     pub fn def_id(&self) -> DefId {
         match *self {
             MonoItem::Fn(Instance { def, .. }) => def.def_id(),
+            MonoItem::ReifiedConst(instance) => instance.def_id(),
             MonoItem::Static(def_id) => def_id,
             MonoItem::GlobalAsm(item_id) => item_id.owner_id.to_def_id(),
         }
@@ -318,6 +337,7 @@ impl<'tcx> fmt::Display for MonoItem<'tcx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             MonoItem::Fn(instance) => write!(f, "fn {instance}"),
+            MonoItem::ReifiedConst(instance) => write!(f, "const {instance}"),
             MonoItem::Static(def_id) => {
                 write!(f, "static {}", Instance::new_raw(def_id, GenericArgs::empty()))
             }
@@ -538,6 +558,9 @@ impl<'tcx> CodegenUnit<'tcx> {
                     | InstanceKind::Shim(ShimKind::FutureDropPoll(..))
                     | InstanceKind::Shim(ShimKind::AsyncDropGlueCtor(..)) => None,
                 },
+                MonoItem::ReifiedConst(ref instance) => {
+                    instance.def_id().as_local().map(|_| instance.def_id())
+                }
                 MonoItem::Static(def_id) => def_id.as_local().map(|_| def_id),
                 MonoItem::GlobalAsm(item_id) => Some(item_id.owner_id.def_id.to_def_id()),
             }

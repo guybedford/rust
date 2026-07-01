@@ -111,6 +111,16 @@ impl<'sess> AttributeParser<'sess> {
             return;
         }
 
+        // Under the `monomorphized_link_section` feature, `#[link_section]` and `#[used]` may be
+        // placed on `const` items. Each reachable monomorphization of such a const is reified into
+        // a per-instantiation static in the named section (see the feature docs).
+        if matches!(cx.target, Target::Const | Target::AssocConst)
+            && matches!(&*cx.attr_path.segments, [sym::link_section] | [sym::used])
+            && cx.features_option().is_some_and(|features| features.monomorphized_link_section())
+        {
+            return;
+        }
+
         // For crate-level attributes we emit a specific set of lints to warn
         // people about accidentally not using them on the crate.
         if let &AllowedTargets::AllowList(&[Allow(Target::Crate)]) = allowed_targets {

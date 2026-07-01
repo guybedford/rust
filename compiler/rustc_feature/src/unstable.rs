@@ -644,6 +644,9 @@ declare_features! (
     (unstable, min_specialization, "1.7.0", Some(31844)),
     /// Target features on mips.
     (unstable, mips_target_feature, "1.27.0", Some(150253)),
+    /// Allows `#[link_section]`/`#[used]` on generic `const` items, reifying each
+    /// monomorphization into a deduplicated static placed in the named section.
+    (unstable, monomorphized_link_section, "CURRENT_RUSTC_VERSION", Some(158620)),
     /// Allows qualified paths in struct expressions, struct patterns and tuple struct patterns.
     (unstable, more_qualified_paths, "1.54.0", Some(86935)),
     /// Allows `move(expr)` in closures.

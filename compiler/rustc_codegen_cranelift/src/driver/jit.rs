@@ -74,6 +74,13 @@ pub(crate) fn run_jit(tcx: TyCtxt<'_>, target_cpu: String, jit_args: Vec<String>
                 MonoItem::Static(def_id) => {
                     crate::constant::codegen_static(tcx, &mut jit_module, def_id);
                 }
+                MonoItem::ReifiedConst(instance) => {
+                    tcx.dcx().span_fatal(
+                        tcx.def_span(instance.def_id()),
+                        "`#[link_section]` on generic const items is not yet supported by the \
+                         Cranelift backend",
+                    );
+                }
                 MonoItem::GlobalAsm(item_id) => {
                     let item = tcx.hir_item(item_id);
                     tcx.dcx().span_fatal(item.span, "Global asm is not supported in JIT mode");

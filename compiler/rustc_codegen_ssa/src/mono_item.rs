@@ -38,6 +38,9 @@ impl<'a, 'tcx: 'a> MonoItemExt<'a, 'tcx> for MonoItem<'tcx> {
             MonoItem::Static(def_id) => {
                 cx.codegen_static(def_id);
             }
+            MonoItem::ReifiedConst(instance) => {
+                cx.codegen_reified_const(instance);
+            }
             MonoItem::GlobalAsm(item_id) => {
                 base::codegen_global_asm(cx, item_id);
             }
@@ -71,6 +74,9 @@ impl<'a, 'tcx: 'a> MonoItemExt<'a, 'tcx> for MonoItem<'tcx> {
             MonoItem::Static(def_id) => {
                 cx.predefine_static(def_id, linkage, visibility, symbol_name);
             }
+            MonoItem::ReifiedConst(instance) => {
+                cx.predefine_reified_const(instance, linkage, visibility, symbol_name);
+            }
             MonoItem::Fn(instance) => {
                 let attrs = cx.tcx().codegen_instance_attrs(instance.def);
 
@@ -92,6 +98,9 @@ impl<'a, 'tcx: 'a> MonoItemExt<'a, 'tcx> for MonoItem<'tcx> {
                 format!("Fn({:?}, {})", instance.def, instance.args.as_ptr().addr())
             }
             MonoItem::Static(id) => format!("Static({id:?})"),
+            MonoItem::ReifiedConst(instance) => {
+                format!("ReifiedConst({:?}, {})", instance.def_id(), instance.args.as_ptr().addr())
+            }
             MonoItem::GlobalAsm(id) => format!("GlobalAsm({id:?})"),
         }
     }

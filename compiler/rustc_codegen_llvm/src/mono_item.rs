@@ -73,6 +73,39 @@ impl<'tcx> PreDefineCodegenMethods<'tcx> for CodegenCx<'_, 'tcx> {
 
         self.instances.borrow_mut().insert(instance, lldecl);
     }
+
+    fn predefine_reified_const(
+        &mut self,
+        instance: Instance<'tcx>,
+        linkage: Linkage,
+        visibility: Visibility,
+        symbol_name: &str,
+    ) {
+        assert!(!instance.args.has_infer());
+
+        let ty = self.tcx.normalize_erasing_regions(
+            self.typing_env(),
+            self.tcx.type_of(instance.def_id()).instantiate(self.tcx, instance.args),
+        );
+        let llty = self.layout_of(ty).llvm_type(self);
+
+        let g = self.define_global(symbol_name, llty).unwrap_or_else(|| {
+            self.sess().dcx().emit_fatal(SymbolAlreadyDefined {
+                span: self.tcx.def_span(instance.def_id()),
+                symbol_name,
+            })
+        });
+
+        llvm::set_linkage(g, base::linkage_to_llvm(linkage));
+        self.set_visibility(g, linkage, visibility);
+        self.assume_dso_local(g, false);
+
+        self.instances.borrow_mut().insert(instance, g);
+    }
+
+    fn codegen_reified_const(&mut self, instance: Instance<'tcx>) {
+        self.codegen_reified_const_item(instance);
+    }
 }
 
 impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {

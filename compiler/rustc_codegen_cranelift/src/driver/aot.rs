@@ -190,6 +190,13 @@ fn codegen_cgu(tcx: TyCtxt<'_>, cgu_name: Symbol) -> AotModule {
                     debug_context.define_static(tcx, &mut type_dbg, def_id, data_id);
                 }
             }
+            MonoItem::ReifiedConst(instance) => {
+                tcx.dcx().span_fatal(
+                    tcx.def_span(instance.def_id()),
+                    "`#[link_section]` on generic const items is not yet supported by the \
+                     Cranelift backend",
+                );
+            }
             MonoItem::GlobalAsm(item_id) => {
                 rustc_codegen_ssa::base::codegen_global_asm(
                     &mut GlobalAsmContext { tcx, global_asm: &mut module.global_asm },
