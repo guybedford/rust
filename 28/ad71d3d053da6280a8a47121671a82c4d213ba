@@ -1,0 +1,21 @@
+compiler/rustc_middle/src/ty/util.rs
+  s_eecc105681b15a::t_34f17c6a5e635b 31-32,147-219
+tests/ui/wasm/externref-position-errors.stderr
+  s_eecc105681b15a::t_3afce982f96cb5 1-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "28ad71d3d053da6280a8a47121671a82c4d213ba",
+  "prompts": {},
+  "sessions": {
+    "s_eecc105681b15a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_074b6cd45ffe61ZWMaTM3MQO54",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Guy Bedford <gbedford@cloudflare.com>"
+    }
+  }
+}
