@@ -1,0 +1,19 @@
+tests/assembly-llvm/wasm-externref-locals-debuginfo.rs
+  s_c72808b360886c::t_e5735c3949f026 1-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "cb624b6f2ec8e25350adf5c81bb820f8eda1d997",
+  "prompts": {},
+  "sessions": {
+    "s_c72808b360886c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_073aff3f2ffeaslvkvE1MtzFEF",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Guy Bedford <gbedford@cloudflare.com>"
+    }
+  }
+}
