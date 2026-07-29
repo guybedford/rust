@@ -169,6 +169,20 @@ impl<'ll, CX: Borrow<SCx<'ll>>> GenericCx<'ll, CX> {
         unsafe { llvm::LLVMInt1TypeInContext(self.llcx()) }
     }
 
+    /// The LLVM target extension type for the wasm `externref` reference type.
+    pub(crate) fn type_wasm_externref(&self) -> &'ll Type {
+        unsafe {
+            llvm::LLVMTargetExtTypeInContext(
+                self.llcx(),
+                c"wasm.externref".as_ptr(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                0,
+            )
+        }
+    }
+
     pub(crate) fn type_struct(&self, els: &[&'ll Type], packed: bool) -> &'ll Type {
         unsafe {
             llvm::LLVMStructTypeInContext(

@@ -113,6 +113,11 @@ impl<'a, 'tcx, V: CodegenObject> PlaceRef<'tcx, V> {
     ) -> Self {
         if layout.peel_transparent_wrappers(bx).deref().is_scalable_vector() {
             Self::alloca_scalable(bx, layout)
+        } else if bx.cx().tcx().is_externref(layout.ty) {
+            // wasm `externref` values cannot be placed in linear memory: emit
+            // a typed alloca, which LLVM's wasm backend promotes to a wasm
+            // local (untyped byte allocas would be unselectable).
+            PlaceValue::new_sized(bx.alloca_with_ty(layout), layout.align.abi).with_type(layout)
         } else {
             Self::alloca_size(bx, layout.size, layout)
         }

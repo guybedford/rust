@@ -616,6 +616,13 @@ fn layout_of_uncached<'tcx>(
             univariant(tys, kind)?
         }
 
+        // The wasm `externref` type: an opaque reference lowered as the LLVM
+        // target extension type `target("wasm.externref")`. The address space
+        // is a rustc-internal marker distinguishing it from data pointers.
+        ty::Adt(def, _args) if tcx.is_lang_item(def.did(), hir::LangItem::ExternRef) => {
+            scalar(Pointer(AddressSpace::WASM_EXTERNREF))
+        }
+
         // Scalable vector types
         //
         // ```rust (ignore, example)

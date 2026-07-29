@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use rustc_abi::Primitive::{Float, Int, Pointer};
-use rustc_abi::{Align, BackendRepr, FieldsShape, Scalar, Size, Variants};
+use rustc_abi::{AddressSpace, Align, BackendRepr, FieldsShape, Scalar, Size, Variants};
 use rustc_codegen_ssa::traits::*;
 use rustc_middle::bug;
 use rustc_middle::ty::layout::{LayoutOf, TyAndLayout};
@@ -312,6 +312,12 @@ impl<'tcx> LayoutLlvmExt<'tcx> for TyAndLayout<'tcx> {
         match scalar.primitive() {
             Int(i, _) => cx.type_from_integer(i),
             Float(f) => cx.type_from_float(f),
+            // `AddressSpace::WASM_EXTERNREF` is a rustc-internal marker for
+            // the wasm `externref` lang type; it lowers to LLVM's opaque
+            // `target("wasm.externref")` reference type, not to a pointer.
+            Pointer(AddressSpace::WASM_EXTERNREF) if cx.sess().target.is_like_wasm => {
+                cx.type_wasm_externref()
+            }
             Pointer(address_space) => cx.type_ptr_ext(address_space),
         }
     }

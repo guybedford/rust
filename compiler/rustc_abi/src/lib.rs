@@ -1843,6 +1843,10 @@ impl AddressSpace {
     /// The address space for workgroup memory on nvptx and amdgpu.
     /// See e.g. the `gpu_launch_sized_workgroup_mem` intrinsic for details.
     pub const GPU_WORKGROUP: Self = AddressSpace(3);
+    /// Marker address space for wasm `externref` scalars in layouts. Values in
+    /// this address space lower to the LLVM target extension type
+    /// `target("wasm.externref")`, never to an actual pointer.
+    pub const WASM_EXTERNREF: Self = AddressSpace(10);
 }
 
 /// How many scalable vectors are in a `BackendRepr::ScalableVector`?

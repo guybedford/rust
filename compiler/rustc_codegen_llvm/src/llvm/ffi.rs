@@ -978,6 +978,14 @@ unsafe extern "C" {
 
     // Operations on other types
     pub(crate) fn LLVMVoidTypeInContext(C: &Context) -> &Type;
+    pub(crate) fn LLVMTargetExtTypeInContext<'a>(
+        C: &'a Context,
+        Name: *const c_char,
+        TypeParams: *const &'a Type,
+        TypeParamCount: c_uint,
+        IntParams: *const c_uint,
+        IntParamCount: c_uint,
+    ) -> &'a Type;
 
     // Operations on all values
     pub(crate) fn LLVMTypeOf(Val: &Value) -> &Type;
