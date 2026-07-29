@@ -638,7 +638,7 @@ pub(crate) fn llfn_attrs_from_instance<'ll, 'tcx>(
     let function_features =
         codegen_fn_attrs.target_features.iter().map(|f| f.name.as_str()).collect::<Vec<&str>>();
 
-    let function_features = function_features
+    let mut function_features = function_features
         .iter()
         // Convert to LLVMFeatures and filter out unavailable ones
         .flat_map(|feat| llvm_util::to_llvm_features(sess, feat))
@@ -649,6 +649,18 @@ pub(crate) fn llfn_attrs_from_instance<'ll, 'tcx>(
             InstructionSetAttr::ArmT32 => "+thumb-mode".to_string(),
         }))
         .collect::<Vec<String>>();
+
+    // LLVM's WebAssemblyRefTypeMem2Local pass, which promotes wasm reference
+    // type allocas to wasm locals, only visits functions whose
+    // `target-features` attribute enables reference-types (clang always emits
+    // the full feature set on every function). Make the session default
+    // explicit on each function so externref locals are promotable.
+    if sess.target.is_like_wasm
+        && tcx.lang_items().externref().is_some()
+        && sess.target_features.contains(&rustc_span::sym::reference_types)
+    {
+        function_features.push("+reference-types".to_string());
+    }
 
     if sess.target.is_like_wasm {
         // If this function is an import from the environment but the wasm

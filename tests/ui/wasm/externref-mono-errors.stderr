@@ -1,0 +1,18 @@
+error: values of type `{async block@$DIR/externref-mono-errors.rs:26:5: 26:10}` cannot exist: it contains a wasm `externref`, which cannot be stored in memory
+  --> $DIR/externref-mono-errors.rs:24:31
+   |
+LL | pub fn held_across_await() -> impl Future<Output = ()> {
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: wasm `externref` values may only be used as bare function arguments, return values and locals
+
+error: values of type `{coroutine@$DIR/externref-mono-errors.rs:36:5: 36:7}` cannot exist: it contains a wasm `externref`, which cannot be stored in memory
+  --> $DIR/externref-mono-errors.rs:33:31
+   |
+LL | pub fn held_across_yield() -> impl Coroutine<Yield = u32, Return = ()> {
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: wasm `externref` values may only be used as bare function arguments, return values and locals
+
+error: aborting due to 2 previous errors
+
